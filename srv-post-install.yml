@@ -1,0 +1,74 @@
+# Run anslible-playbook srv-post-install.yml -f 10
+# For CentOS 7/8 minimal install
+#
+- hosts: nagiosxi
+  remote_user: root
+  tasks:
+  - name: Add some packages
+    yum:
+      name: "{{ packages }}"
+      state: latest
+    vars:
+        packages:
+        - net-tools
+        - iptables
+        - iptables-services
+        - wget
+        - mc
+        - nfs-utils
+        - epel-release
+        - zip
+        - git
+  - name: Kernel and vm-tools upgrade
+    yum:
+      name:
+      - kernel
+      - open-vm-tools
+      state: latest
+    notify:
+    - Reboot to apply changes
+  - name: Update all packages
+    yum:
+      name: '*'
+      state: latest
+  - name: Disable SELinux
+    selinux:
+      state: disabled
+    notify:
+    - Reboot to apply changes
+  - name: Disable ipv6 1/2 (patch /etc/default/grub)
+    lineinfile:
+      path: /etc/default/grub
+      regexp: 'GRUB_CMDLINE_LINUX="(.+[a-z])"'
+      line: 'GRUB_CMDLINE_LINUX="\1 ipv6.disable=1"'
+      backrefs: yes
+    register: grub
+  - name: Disable ipv6 2/2 (make new grub.cfg)
+    command: grub2-mkconfig -o /boot/grub2/grub.cfg
+    when: grub.changed
+    notify:
+    - Reboot to apply changes
+  - name: Disable firewalld
+    systemd:
+      name: firewalld
+      state: stopped
+      masked: yes
+  - name: Enable iptables
+    systemd:
+      name: iptables
+      enabled: yes
+      state: started
+  - name: SSHd UseDNS yes
+    lineinfile:
+      path: /etc/ssh/sshd_config
+      regexp: '.*UseDNS'
+      line: 'UseDNS yes'
+  - name: Add nfs mounting in fstab
+    lineinfile:
+      path: /etc/fstab
+      state: present
+      regexp: '52.52.116.14:/var/nfsshare /mnt/nfsshare nfs defaults 0 0'
+      line: '52.52.116.14:/var/nfsshare /mnt/nfsshare nfs defaults 0 0'
+  handlers:
+  - name: Reboot to apply changes
+    reboot:
